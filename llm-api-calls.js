@@ -8,25 +8,23 @@ export async function makeClaudeApiCall(apiKey, chatContext, systemMessage, mode
             apiKey: apiKey,
         });
 
-        let messages = chatContext.map(msg => ({
+        let messages = await Promise.all(chatContext.map(async msg => ({
             role: msg.role,
-            content: msg.image ? {
-                content: [
-                    ...(msg.image || []).map(img => ({
-                        type: "image",
-                        source: {
-                            type: "base64",
-                            media_type: img.media_type,
-                            data: convertToBase64(img.url)
-                        }
-                    })),
-                    {
-                        type: "text",
-                        text: msg.content
+            content: msg.image !== null ? [
+                ...(await Promise.all(msg.image.map(async img => ({
+                    type: "image",
+                    source: {
+                        type: "base64", 
+                        media_type: img.media_type,
+                        data: await convertToBase64(img.url)
                     }
-                ]
-            } : msg.content
-        }));
+                })))),
+                {
+                    type: "text",
+                    text: msg.content
+                }
+            ] : msg.content
+        })));
 
         const stream = await anthropic.beta.promptCaching.messages.create({
             model: model == 1 ? "claude-3-5-sonnet-20241022" : "claude-3-5-haiku-latest",
@@ -89,15 +87,16 @@ export async function makeGeminiApiCall(apiKey, chatContext, systemMessage, mode
 
         let messages = chatContext.map(msg => ({
             role: msg.role,
-            parts: [
-                { text: msg.content },
-                ...(msg.image || []).map(img => ({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": `data:image/jpeg;base64,${convertToBase64(img.url)}`
-                    },
-                }))
-            ],
+            parts: [{ 
+                    text: msg.content 
+                },
+                    ...msg.image.map(img => ({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": `${img.url}`,
+                        },
+                    }))
+                ],
             generationConfig: {
                 maxOutputTokens: maxTokens,
                 temperature: temperature
@@ -126,18 +125,30 @@ export async function makeChatGPTApiCall(apiKey, chatContext, systemMessage, mod
 
         let messages = [
             { role: "system", content: fullSystemMessage },
-            ...chatContext.map(msg => ({
-                role: msg.role,
-                content: msg.image ? msg.image.map(img => ({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": `data:image/jpeg;base64,${img}`
-                    }
-                }, {
-                    "type": "text",
-                    "text": msg.content
-                })) : msg.content
-            }))
+            ...chatContext.map(msg => {
+                if (msg.image && msg.image.length > 0) {
+                    return {
+                        role: msg.role,
+                        content: [
+                            ...msg.image.map(img => ({
+                                type: "image_url",
+                                image_url: {
+                                    url: `${img.url}`,
+                                    detail: "high"
+                                }
+                            })),
+                            {
+                                type: "text",
+                                text: msg.content
+                            }
+                        ]
+                    };
+                }
+                return {
+                    role: msg.role,
+                    content: msg.content
+                };
+            })
         ];
 
         const completion = await openai.chat.completions.create({
