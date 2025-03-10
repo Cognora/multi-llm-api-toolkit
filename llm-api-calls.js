@@ -27,17 +27,25 @@ export async function makeClaudeApiCall(apiKey, chatContext, systemMessage, mode
             ] : msg.content
         })));
 
+        const modelName = model > 0 ? 
+        (model === 1 ? "claude-3-7-sonnet-20250219" : "claude-3-5-haiku-20241022") :
+        (model === -1 ? "claude-3-7-sonnet-20250219" : "claude-3-7-sonnet-20250219");
+
+        const isReasoning = model < 0 ? true : false;
+
         const stream = await anthropic.beta.promptCaching.messages.create({
-            model: model == 1 ? "claude-3-5-sonnet-20241022" : "claude-3-5-haiku-latest",
+            model: modelName,
             max_tokens: maxTokens,
             temperature: temperature,
             messages: messages,
             stream: true,
-            system: systemMessage
-        }, {
-            headers: {
-                'anthropic-beta': 'pdfs-2024-09-25,prompt-caching-2024-07-31'
-            }
+            system: systemMessage,
+            ...(isReasoning ? {
+                thinking: {
+                    type: "enabled",
+                    budget_tokens: 16000
+                }
+            } : {})
         });
 
         return stream;
