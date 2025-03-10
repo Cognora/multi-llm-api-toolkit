@@ -1,33 +1,41 @@
 # Multi-LLM API Toolkit
 
-A lightweight, developer-friendly library that streamlines API interactions across multiple large language models. Easily make API calls to Claude, ChatGPT, Gemini, and Grok with built-in support for text and image inputs.
+A lightweight, developer-friendly library that streamlines API interactions across multiple large language models. Easily make API calls to Claude, ChatGPT, Gemini, Grok, and OpenRouter with built-in support for text and image inputs, plus reasoning capabilities.
 
 ## Features
 
 - **Unified API Interface** across multiple LLM providers:
-  - Anthropic Claude 3.5 (Sonnet & Haiku)
-  - OpenAI GPT-4 & variants
-  - Google Gemini Pro & Flash
-  - X.AI Grok
+  - Anthropic Claude 3.7 Sonnet & 3.5 Haiku
+  - OpenAI GPT-4o & GPT-4o-mini and O-Series Models
+  - Google Gemini 2.0 Pro & Flash
+  - X.AI Grok-2 & Grok-2-vision
+  - OpenRouter API (access to multiple models)
+
+- **Advanced Reasoning Capabilities**
+  - Support for Claude's thinking mode
+  - Gemini thinking mode integration
+  - OpenRouter reasoning mode
+  - Standardized reasoning content handling
 
 - **Streaming Support**
   - Standardized streaming interface across all providers
   - Automatic stream handling and transformation
-  - Built-in timeout management
+  - Reasoning content streaming
   - Abort controller support
 
 - **Multi-Modal Capabilities**
   - Text input/output
-  - Image analysis (Claude & Gemini & ChatGPT)
-  - Automatic base64 image conversion
-  - Support for multiple image formats
+  - Image analysis across providers:
+    - Claude with base64 image conversion
+    - Gemini with image_url support
+    - GPT-4o with image_url support
+    - Grok-2-vision support
 
 - **Advanced Features**
-  - Anthropic-exclusive cache control
-  - PDF content handling
-  - Customizable system messages
+  - Anthropic thinking mode with token budget control
+  - Standardized message formatting
   - Temperature and token control
-  - Error handling and retries
+  - Comprehensive error handling
 
 ## Installation
 ```bash
@@ -56,29 +64,20 @@ makeClaudeApiCall(
     apiKey: string,
     chatContext: Message[],
     systemMessage: string,
-    model: 1 | 2, // 1: claude-3-sonnet, 2: claude-3-haiku
+    model: number, // 1: claude-3-7-sonnet-20250219, 2: claude-3-5-haiku-20241022, -1: claude-3-7-sonnet with reasoning
     maxTokens: number,
     temperature?: number
 )
 ```
 
-#### Cache Control (Anthropic Exclusive)
+#### Reasoning Mode (Thinking)
 ```javascript
-// Example with cache control
-const contextWithCache = [{
-    role: "user",
-    content: {
-        type: "text",
-        text: "Your message",
-        cache_control: { type: "ephemeral" }
-    }
-}];
-
-const stream = await makeClaudeApiCall(
+// Example with reasoning mode
+const response = await makeClaudeApiCall(
     apiKey,
-    contextWithCache,
+    chatContext,
     systemMessage,
-    1,
+    -1, // Use negative model number to enable reasoning
     maxTokens,
     temperature
 );
@@ -89,20 +88,22 @@ const stream = await makeClaudeApiCall(
 makeGrokApiCall(
     apiKey: string,
     chatContext: Message[],
-    systemMessage: SystemMessage[],
+    systemMessage: string[],
     model: number,
     maxTokens: number,
     temperature?: number
 )
 ```
 
+The function automatically selects between `grok-2-1212` and `grok-2-vision-1212` based on whether images are present in the chat context.
+
 ### Gemini API (Google)
 ```typescript
 makeGeminiApiCall(
     apiKey: string,
     chatContext: Message[],
-    systemMessage: SystemMessage[],
-    model: 1 | 2, // 1: gemini-pro, 2: gemini-flash
+    systemMessage: string[],
+    model: number, // 1: gemini-2.0-pro-exp-02-05, 2: gemini-2.0-flash-exp, -1: gemini-2.0-flash-thinking-exp
     maxTokens: number,
     temperature?: number
 )
@@ -113,12 +114,26 @@ makeGeminiApiCall(
 makeChatGPTApiCall(
     apiKey: string,
     chatContext: Message[],
-    systemMessage: SystemMessage[],
-    model: 1 | 2, // 1: gpt-4, 2: gpt-4-mini
+    systemMessage: string[],
+    model: number, // 1: gpt-4o, 2: gpt-4o-mini, -1: o1, -2: o3-mini
     maxTokens: number,
     temperature?: number
 )
 ```
+
+### OpenRouter API
+```typescript
+makeOpenRouterApiCall(
+    apiKey: string,
+    chatContext: Message[],
+    systemMessage: string,
+    model: { name: string, type: number }, // Provide a model object; negative type enables reasoning mode
+    maxTokens: number,
+    temperature?: number
+)
+```
+
+This function routes requests through the OpenRouter endpoint and supports reasoning mode when the model type is negative.
 
 ## Message Formats
 
@@ -126,7 +141,7 @@ makeChatGPTApiCall(
 ```typescript
 interface Message {
     role: "system" | "user" | "assistant";
-    content: string | ContentBlock;
+    content: string;
     image?: ImageData[];
 }
 
@@ -136,16 +151,14 @@ interface ImageData {
 }
 ```
 
-### Cache Control Message (Anthropic)
+### System Message Format
 ```typescript
-interface CacheControlMessage {
-    role: string;
-    content: {
-        type: "text";
-        text: string;
-        cache_control: {
-            type: "ephemeral" | "persistent";
-        };
+// For APIs that support array-based system messages
+interface SystemMessage {
+    type: "text";
+    text: string;
+    cache_control?: {
+        type: "ephemeral" | "persistent";
     };
 }
 ```
@@ -156,21 +169,23 @@ All API calls return a standardized stream format, regardless of the provider's 
 
 ```typescript
 interface StreamResponse {
-    type: 'content_block_delta';
-    delta: {
+    type: 'content_block_delta' | 'reasoning_content';
+    delta?: {
         text: string;
     };
+    reasoning_content?: string;
 }
 ```
 
-Provider-specific formats that are automatically standardized:
+The toolkit handles different provider formats:
 
 ```typescript
 // OpenAI & Grok Format
 {
     choices: [{
         delta: {
-            content: string
+            content: string,
+            reasoning_content?: string
         }
     }]
 }
@@ -196,6 +211,8 @@ const stream = await makeClaudeApiCall(/* params */);
 for await (const chunk of stream) {
     if (chunk.type === 'content_block_delta') {
         console.log(chunk.delta.text);
+    } else if (chunk.type === 'reasoning_content') {
+        console.log('Reasoning:', chunk.reasoning_content);
     }
 }
 ```
@@ -227,37 +244,47 @@ const contextWithImage = [{
     }]
 }];
 
-// Automatic base64 conversion handled internally
+// Automatic base64 conversion for Claude
+// Direct URL passing for other providers
 const response = await makeClaudeApiCall(/* params */);
 ```
 
 ## Advanced Features
 
-### Cache Control (Anthropic Exclusive)
-Claude's cache control feature allows for fine-grained control over message persistence:
+### Reasoning Mode
+Enable reasoning/thinking capabilities across supported models:
 
 ```javascript
-// Ephemeral messages (not stored in context)
-const ephemeralContext = [{
-    role: "user",
-    content: {
-        type: "text",
-        text: "Sensitive information",
-        cache_control: { type: "ephemeral" }
-    }
-}];
+// Claude with thinking mode
+const claudeResponse = await makeClaudeApiCall(
+    apiKey,
+    chatContext,
+    systemMessage,
+    -1, // Negative value enables thinking mode
+    maxTokens,
+    temperature
+);
 
-// Persistent messages (stored in context)
-const persistentContext = [{
-    role: "user",
-    content: {
-        type: "text",
-        text: "Important context",
-        cache_control: { type: "persistent" }
-    }
-}];
+// Gemini with thinking mode
+const geminiResponse = await makeGeminiApiCall(
+    apiKey,
+    chatContext,
+    systemMessage,
+    -1, // Negative value enables thinking mode
+    maxTokens,
+    temperature
+);
+
+// OpenRouter with reasoning
+const openRouterResponse = await makeOpenRouterApiCall(
+    apiKey,
+    chatContext,
+    systemMessage,
+    { name: "anthropic/claude-3-opus-20240229", type: -1 }, // Negative type enables reasoning
+    maxTokens,
+    temperature
+);
 ```
-
 
 ## Best Practices
 
@@ -267,14 +294,14 @@ const persistentContext = [{
    - Implement key rotation
 
 2. **Stream Processing**
-   - Always implement timeout handling
+   - Handle both regular content and reasoning content
+   - Implement timeout handling
    - Use abort controllers for cancellation
-   - Handle stream errors gracefully
 
-3. **Cache Control**
-   - Use ephemeral cache for sensitive data
-   - Implement persistent cache for reusable content
-   - Only available with Anthropic's Claude
+3. **Model Selection**
+   - Use positive model numbers for standard models
+   - Use negative model numbers to enable reasoning capabilities
+   - For OpenRouter, provide a model object with name and type
 
 4. **Resource Management**
    - Monitor token usage
