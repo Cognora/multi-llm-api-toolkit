@@ -189,17 +189,47 @@ export async function makeOpenRouterApiCall(apiKey, chatContext, systemMessage, 
 }
 
 function standardizeStream(stream) {
+    let response = ``
     try {
         return {
             [Symbol.asyncIterator]: async function* () {
                 try {
                     for await (const chunk of stream) {
-                        // Handle OpenAI/Grok format
-                        if (chunk.choices?.[0]?.delta?.content) {
-                            yield {
-                                type: 'content_block_delta',
-                                delta: { text: chunk.choices[0].delta.content }
-                            };
+                        if (chunk.choices && chunk.choices.length > 0) {
+                            const textsofar = response + chunk.choices[0].delta.content || '' + chunk.choices[0].delta.reasoning_content || '';
+
+                            // Count opening and closing tags to determine if we're inside a think block
+                            const thinkOpens = (textsofar.match(/<think>/g) || []).length;
+                            const thinkCloses = (textsofar.match(/<\/think>/g) || []).length;
+                            const isInThinkTag = thinkOpens > thinkCloses;
+
+                            const originalThinkCloses = (response.match(/<\/think>/g) || []).length;
+                            const isnotedgecase = originalThinkCloses === thinkCloses;
+
+                            const choice = chunk.choices[0];
+                            if (choice?.delta?.content && !isInThinkTag && isnotedgecase) {
+                                response += choice.delta.content;
+                                yield {
+                                    type: 'content_block_delta',
+                                    delta: { text: choice.delta.content }
+                                };
+                            } else if (choice?.delta?.reasoning_content || isInThinkTag || !isnotedgecase) {
+                                if(!choice?.delta?.reasoning_content) {
+                                    response += choice.delta.content;
+                                    yield {
+                                        type: 'reasoning_content',
+                                        reasoning_content: choice.delta.content
+                                    };
+                                }
+                                // Only yield if there's actual reasoning content
+                                if (choice?.delta?.reasoning_content) {
+                                    response += choice.delta.reasoning_content;
+                                    yield {
+                                        type: 'reasoning_content',
+                                        reasoning_content: choice.delta.reasoning_content
+                                    };
+                                }
+                            }
                         // Handle Gemini format
                         } else if (chunk.text) {
                             yield {
