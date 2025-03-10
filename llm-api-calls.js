@@ -161,6 +161,51 @@ export async function makeChatGPTApiCall(apiKey, chatContext, systemMessage, mod
     }
 }
 
+export async function makeOpenRouterApiCall(apiKey, chatContext, systemMessage, model, maxTokens, temperature = 0.7) {
+    try {
+        const messages = [
+            { role: "system", content: systemMessage },
+            ...chatContext.map(msg => ({ role: msg.role, content: msg.content }))
+        ]
+
+        const isReasoning = model.type < 0 ? true : false;
+        
+        console.log(`Making OpenRouter API call with model: ${model}`);
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${apiKey}`,
+                "HTTP-Referer": "", //optional
+                "X-Title": "", //optional
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: model.name,
+                messages: messages,
+                temperature: temperature,
+                stream: true,
+                include_reasoning: isReasoning
+            })
+        });
+
+        if (!response.ok) {
+            console.error(`OpenRouter API call failed with status ${response.status}`);
+            throw new Error(`OpenRouter API call failed with status ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+            throw new Error('Response body is not readable');
+        }
+
+        const adaptedStream = asyncIteratorFromReader(reader);
+        
+        console.log("OpenRouter API call successful, returning adapted stream");
+        return [standardizeStream(adaptedStream), model.name];
+    } catch (error) {
+        throw new Error(`OpenRouter API Error: ${error.message}`);
+    }
+}
 
 function standardizeStream(stream) {
     try {
@@ -189,6 +234,43 @@ function standardizeStream(stream) {
         };
     } catch (error) {
         throw new Error(`Stream Creation Error: ${error.message}`);
+    }
+}
+
+async function* asyncIteratorFromReader(reader) {
+    const decoder = new TextDecoder();
+    let buffer = '';
+  
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+  
+        // Append new chunk to the buffer
+        buffer += decoder.decode(value, { stream: true });
+  
+        // Process complete lines from the buffer
+        while (true) {
+          const lineEnd = buffer.indexOf('\n');
+          if (lineEnd === -1) break;
+          const line = buffer.slice(0, lineEnd).trim();
+          buffer = buffer.slice(lineEnd + 1);
+  
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') return;
+            try {
+              const parsed = JSON.parse(data);
+              yield parsed;
+            } catch (e) {
+              // If JSON parsing fails, skip this line
+              console.error('Error parsing JSON:', e);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.cancel();
     }
 }
 
