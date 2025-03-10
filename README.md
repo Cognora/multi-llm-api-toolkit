@@ -38,14 +38,25 @@ A lightweight, developer-friendly library that streamlines API interactions acro
   - Comprehensive error handling
 
 ## Installation
+
+### Direct Download
+Download the source code directly from the repository:
+
 ```bash
-npm install multi-llm-api-toolkit
+git clone https://github.com/Cognora/multi-llm-api-toolkit.git
 ```
 
-## Quick Start
-```javascript
-import { makeClaudeApiCall } from 'multi-llm-api-toolkit';
+### Manual Integration
+Copy the necessary files directly into your project structure.
 
+## Quick Start
+
+```javascript
+// Import the library using your preferred method
+// For direct script inclusion:
+const { makeClaudeApiCall } = MultiLLMApiToolkit;
+
+// Example usage
 const response = await makeClaudeApiCall(
     apiKey,
     chatContext,
