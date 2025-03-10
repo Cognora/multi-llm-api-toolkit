@@ -85,13 +85,17 @@ export async function makeGeminiApiCall(apiKey, chatContext, systemMessage, mode
 
         let fullSystemMessage = systemMessage.map(msg => msg.text).join('\n\n');
 
+        const modelName = model > 0 ? 
+        (model == 1 ? "gemini-2.0-pro-exp-02-05" : "gemini-2.0-flash-exp") :
+        (model == -1 ? "gemini-2.0-flash-thinking-exp" : "gemini-2.0-flash-thinking-exp");
+
         const genModel = googleGenerativeAI.getGenerativeModel({
-            model: model == 1 ? "gemini-1.5-pro" : "gemini-1.5-flash",
+            model: modelName,
             systemInstruction: fullSystemMessage
         });
 
         let messages = chatContext.map(msg => ({
-            role: msg.role,
+            role: msg.role === "user" ? "user" : "model",
             parts: [{ 
                     text: msg.content 
                 },
