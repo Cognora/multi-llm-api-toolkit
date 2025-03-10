@@ -90,17 +90,13 @@ export async function makeGeminiApiCall(apiKey, chatContext, systemMessage, mode
             parts: [{ 
                     text: msg.content 
                 },
-                    ...msg.image.map(img => ({
+                    ...(msg.image ? msg.image.map(img => ({
                         "type": "image_url",
                         "image_url": {
                             "url": `${img.url}`,
                         },
-                    }))
-                ],
-            generationConfig: {
-                maxOutputTokens: maxTokens,
-                temperature: temperature
-            }
+                    })) : [])
+                ]
         }));
 
         const lastMessage = messages.length > 0 ? messages[messages.length - 1].parts[0].text : "";
@@ -165,7 +161,7 @@ export async function makeChatGPTApiCall(apiKey, chatContext, systemMessage, mod
     }
 }
 
-// Update helper functions with error handling
+
 function standardizeStream(stream) {
     try {
         return {
