@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+
 import OpenAI from "openai";
 
 export async function makeClaudeApiCall(apiKey, chatContext, systemMessage, model, maxTokens, temperature = 0.7) {
@@ -52,23 +53,19 @@ export async function makeGrokApiCall(apiKey, chatContext, systemMessage, model,
             baseURL: "https://api.x.ai/v1",
         });
 
-        let fullSystemMessage = systemMessage.map(msg => msg.text).join('\n\n');
+        let messages = formatMessages(chatContext, systemMessage);
 
-        let messages = [
-            { role: "system", content: fullSystemMessage },
-            ...chatContext.map(msg => ({
-                role: msg.role,
-                content: msg.content
-            }))
-        ];
+        const hasImage = chatContext.some(msg => msg.image && msg.image.length > 0);
+
+        const modelName = hasImage ? "grok-2-vision-1212" : "grok-2-1212";
 
         const stream = await openai.chat.completions.create({
-            model: "grok-beta",
+            model: modelName,
             messages: messages,
             stream: true,
         });
 
-        return standardizeStream(stream);
+        return [standardizeStream(stream), modelName];
     } catch (error) {
         throw new Error(`Grok API Error: ${error.message}`);
     }
@@ -117,38 +114,14 @@ export async function makeChatGPTApiCall(apiKey, chatContext, systemMessage, mod
             apiKey: apiKey,
         });
 
-        let fullSystemMessage = systemMessage.map(msg => msg.text).join('\n\n');
+        let messages = formatMessages(chatContext, systemMessage);
 
-        let messages = [
-            { role: "system", content: fullSystemMessage },
-            ...chatContext.map(msg => {
-                if (msg.image && msg.image.length > 0) {
-                    return {
-                        role: msg.role,
-                        content: [
-                            ...msg.image.map(img => ({
-                                type: "image_url",
-                                image_url: {
-                                    url: `${img.url}`,
-                                    detail: "high"
-                                }
-                            })),
-                            {
-                                type: "text",
-                                text: msg.content
-                            }
-                        ]
-                    };
-                }
-                return {
-                    role: msg.role,
-                    content: msg.content
-                };
-            })
-        ];
+        const modelName = model < 0 ? 
+        model == -1 ? "o1" : "o3-mini" :
+        model == 1 ? "gpt-4o" : "gpt-4o-mini";
 
         const completion = await openai.chat.completions.create({
-            model: model == 1 ? "gpt-4o" : "gpt-4o-mini",
+            model: modelName,
             messages: messages,
             stream: true,
             max_completion_tokens: maxTokens,
@@ -272,6 +245,40 @@ async function* asyncIteratorFromReader(reader) {
     } finally {
       reader.cancel();
     }
+}
+
+function formatMessages(chatContext, systemMessage) {
+    let fullSystemMessage = systemMessage.map(msg => msg.text).join('\n\n');
+
+    let messages = [
+        { role: "system", content: fullSystemMessage },
+        ...chatContext.map(msg => {
+            if (msg.image && msg.image.length > 0) {
+                return {
+                    role: msg.role,
+                    content: [
+                        ...msg.image.map(img => ({
+                            type: "image_url",
+                            image_url: {
+                                url: `${img.url}`,
+                                detail: "high"
+                            }
+                        })),
+                        {
+                            type: "text",
+                            text: msg.content
+                        }
+                    ]
+                };
+            }
+            return {
+                role: msg.role,
+                content: msg.content
+            };
+        })
+    ];
+
+    return messages;
 }
 
 async function convertToBase64(imageUrl) {
